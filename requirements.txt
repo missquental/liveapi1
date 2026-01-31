@@ -22,8 +22,5 @@ ffprobe
 fastapi
 uvicorn
 python-multipart
-streamlit==1.29.0
-fastapi==0.104.1
-uvicorn==0.24.0
-python-multipart==0.0.6
-requests==2.31.0
+
+
