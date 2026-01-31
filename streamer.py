@@ -1,24 +1,37 @@
 import subprocess
 import os
 import threading
-from typing import Callable
+import time
 
 class Streamer:
     def __init__(self):
         self.process = None
         self.streaming = False
         self.logs = []
+        self.log_lock = threading.Lock()
         
-    def log_message(self, message: str):
-        """Simpan log pesan"""
-        log_entry = f"[{len(self.logs) + 1}] {message}"
-        self.logs.append(log_entry)
+    def add_log(self, message: str):
+        """Tambahkan log dengan thread safety"""
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = f"[{timestamp}] {message}"
+        with self.log_lock:
+            self.logs.append(log_entry)
         print(log_entry)
+    
+    def get_logs(self, limit: int = 50):
+        """Dapatkan logs terakhir"""
+        with self.log_lock:
+            return self.logs[-limit:] if self.logs else []
+    
+    def clear_logs(self):
+        """Bersihkan logs"""
+        with self.log_lock:
+            self.logs.clear()
     
     def run_ffmpeg(self, video_path: str, stream_key: str, is_shorts: bool):
         """Jalankan streaming menggunakan FFmpeg"""
         if not os.path.exists(video_path):
-            self.log_message(f"Error: Video file not found: {video_path}")
+            self.add_log(f"Error: Video file not found: {video_path}")
             return
             
         output_url = f"rtmp://a.rtmp.youtube.com/live2/{stream_key}"
@@ -39,7 +52,7 @@ class Streamer:
             
         cmd.append(output_url)
         
-        self.log_message(f"Menjalankan: {' '.join(cmd)}")
+        self.add_log(f"Menjalankan: {' '.join(cmd)}")
         
         try:
             self.process = subprocess.Popen(
@@ -53,28 +66,31 @@ class Streamer:
             
             # Baca output FFmpeg
             for line in self.process.stdout:
-                self.log_message(line.strip())
+                self.add_log(line.strip())
                 
             self.process.wait()
             
         except Exception as e:
-            self.log_message(f"Error: {str(e)}")
+            self.add_log(f"Error: {str(e)}")
         finally:
             self.streaming = False
-            self.log_message("Streaming selesai atau dihentikan.")
+            self.add_log("Streaming selesai atau dihentikan.")
     
     def start_streaming(self, video_path: str, stream_key: str, is_shorts: bool):
         """Mulai streaming dalam thread terpisah"""
         if self.streaming:
             raise Exception("Sudah ada streaming yang aktif")
             
+        # Bersihkan logs sebelumnya
+        self.clear_logs()
+        
         thread = threading.Thread(
             target=self.run_ffmpeg,
             args=(video_path, stream_key, is_shorts),
             daemon=True
         )
         thread.start()
-        self.log_message("Streaming dimulai")
+        self.add_log("Streaming dimulai")
         return {"status": "success", "message": "Streaming dimulai"}
     
     def stop_streaming(self):
@@ -84,8 +100,8 @@ class Streamer:
             self.process = None
         self.streaming = False
         # Kill semua proses ffmpeg
-        os.system("pkill ffmpeg")
-        self.log_message("Streaming dihentikan")
+        os.system("pkill -f ffmpeg")
+        self.add_log("Streaming dihentikan")
         return {"status": "success", "message": "Streaming dihentikan"}
 
 # Singleton instance
