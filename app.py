@@ -6,13 +6,6 @@ import streamlit as st
 from streamer import streamer_instance
 from api_handler import handle_api_request
 
-# Install required packages if needed
-def install_package(package):
-    try:
-        __import__(package)
-    except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
 # Page configuration
 st.set_page_config(
     page_title="Streaming YT by didinchy",
@@ -137,10 +130,15 @@ def main():
         4. Klik "Mulai Streaming"
         5. Monitor status di tab "Status"
         
-        **Catatan:**
-        - Pastikan video dalam format yang didukung (H.264/AAC)
-        - Stream Key bisa didapat dari YouTube Studio > Go Live
-        - Untuk mode Shorts, video akan diubah menjadi 720x1280
+        **API Endpoints:**
+        - POST /api/upload - Upload video
+        - POST /api/stream/start - Mulai streaming
+        - POST /api/stream/stop - Stop streaming
+        - GET /api/status - Status streaming
+        - GET /api/logs - Logs streaming
+        - GET /api/videos - List videos
+        
+        Base URL: https://liveapi1.streamlit.app/
         """)
 
 if __name__ == '__main__':
