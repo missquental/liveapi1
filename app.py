@@ -17,6 +17,20 @@ st.set_page_config(
 def main():
     st.title("🎥 Live Streaming to YouTube")
     
+    # Cek jika ada request API dari form submission
+    query_params = st.experimental_get_query_params()
+    if "action" in query_params:
+        action = query_params["action"][0]
+        # Proses API request
+        data = {}
+        for key in query_params:
+            if key != "action":
+                data[key] = query_params[key][0]
+        
+        result = handle_api_request(action, data)
+        st.json(result)
+        return
+    
     # Tabs untuk navigasi
     tab1, tab2, tab3 = st.tabs(["📺 Streaming", "📊 Status", "⚙️ Settings"])
     
@@ -133,28 +147,52 @@ def main():
         
         # Upload video
         with open('video.mp4', 'rb') as f:
-            files = {'file': ('video.mp4', f)}
             response = requests.post(
                 'https://liveapi1.streamlit.app/',
-                files=files,
-                data={'action': 'upload', 'filename': 'video.mp4'}
+                files={'file': f},
+                data={
+                    'action': 'upload',
+                    'filename': 'video.mp4'
+                }
             )
         
         # Mulai streaming
-        data = {
-            'action': 'start_stream',
-            'filename': 'video.mp4',
-            'stream_key': 'YOUR_STREAM_KEY',
-            'is_shorts': 'false'
-        }
-        response = requests.post('https://liveapi1.streamlit.app/', data=data)
+        response = requests.post(
+            'https://liveapi1.streamlit.app/',
+            data={
+                'action': 'start_stream',
+                'filename': 'video.mp4',
+                'stream_key': 'YOUR_STREAM_KEY',
+                'is_shorts': 'false'
+            }
+        )
         ```
         
         **Endpoint yang Tersedia:**
-        - Upload: POST dengan file data dan parameter action='upload'
-        - Start Stream: POST dengan parameter action='start_stream'
-        - Stop Stream: POST dengan parameter action='stop_stream'
-        - Get Status: POST dengan parameter action='get_status'
-        - Get Logs: POST dengan parameter action='get_logs'
+        - Upload: POST dengan parameter `action=upload` dan `filename`
+        - Start Stream: POST dengan parameter `action=start_stream`
+        - Stop Stream: POST dengan parameter `action=stop_stream`
+        - Get Status: POST dengan parameter `action=get_status`
+        - Get Logs: POST dengan parameter `action=get_logs`
+        - List Videos: POST dengan parameter `action=list_videos`
         
-        Semua request dikirim ke URL ut
+        Semua request dikirim ke URL utama: `https://liveapi1.streamlit.app/`
+        
+        **Contoh URL dengan Parameters:**
+        - Upload: `https://liveapi1.streamlit.app/?action=upload&filename=test.mp4`
+        - Status: `https://liveapi1.streamlit.app/?action=get_status`
+        """)
+        
+        # Test API Form
+        st.subheader("🧪 Test API")
+        with st.expander("Test API Actions"):
+            action = st.selectbox("Pilih Action", [
+                "get_status", "get_logs", "list_videos", "stop_stream"
+            ])
+            
+            if st.button("Execute API Call"):
+                result = handle_api_request(action)
+                st.json(result)
+
+if __name__ == '__main__':
+    main()
