@@ -1,147 +1,265 @@
-import sys
-import subprocess
-import os
-import streamlit.components.v1 as components
 import streamlit as st
+import uvicorn
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.responses import JSONResponse
+import os
+import shutil
 from streamer import streamer_instance
-from api_handler import handle_api_request
+import threading
+import time
 
-# Install required packages if needed
-def install_package(package):
+# Buat folder uploads
+UPLOAD_FOLDER = "uploads"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Inisialisasi FastAPI
+api = FastAPI(title="YouTube Live Streaming API")
+
+# === API ENDPOINTS ===
+
+@api.get("/")
+async def root():
+    """API Root"""
+    return {
+        "message": "YouTube Live Streaming API",
+        "docs": "/docs",
+        "endpoints": {
+            "upload": "POST /api/upload",
+            "start_stream": "POST /api/start",
+            "stop_stream": "POST /api/stop",
+            "status": "GET /api/status",
+            "logs": "GET /api/logs"
+        }
+    }
+
+@api.post("/api/upload")
+async def upload_video(file: UploadFile = File(...)):
+    """
+    Upload video file
+    """
     try:
-        __import__(package)
-    except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+        # Validasi ekstensi file
+        allowed_extensions = {'.mp4', '.flv', '.mov', '.avi', '.mkv'}
+        file_extension = os.path.splitext(file.filename)[1].lower()
+        
+        if file_extension not in allowed_extensions:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Tipe file tidak didukung. Gunakan: {allowed_extensions}"
+            )
+        
+        # Simpan file ke uploads folder
+        file_path = os.path.join(UPLOAD_FOLDER, file.filename)
+        
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        return JSONResponse(
+            content={
+                "status": "success",
+                "filename": file.filename,
+                "path": file_path,
+                "size": os.path.getsize(file_path),
+                "message": "Upload berhasil"
+            },
+            status_code=200
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-# Page configuration
-st.set_page_config(
-    page_title="Streaming YT by didinchy",
-    page_icon="📈",
-    layout="wide"
-)
+@api.post("/api/start")
+async def start_stream(
+    filename: str = Form(...),
+    stream_key: str = Form(...),
+    is_shorts: bool = Form(False)
+):
+    """
+    Mulai streaming ke YouTube
+    """
+    try:
+        file_path = os.path.join(UPLOAD_FOLDER, filename)
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(
+                status_code=404, 
+                detail=f"File tidak ditemukan: {filename}"
+            )
+        
+        # Cek apakah sudah streaming
+        if streamer_instance.streaming:
+            raise HTTPException(
+                status_code=400, 
+                detail="Sudah ada streaming yang aktif"
+            )
+        
+        # Mulai streaming
+        result = streamer_instance.start_streaming(file_path, stream_key, is_shorts)
+        return JSONResponse(content=result, status_code=200)
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-def main():
-    st.title("🎥 Live Streaming to YouTube")
+@api.post("/api/stop")
+async def stop_stream():
+    """
+    Hentikan streaming
+    """
+    try:
+        result = streamer_instance.stop_streaming()
+        return JSONResponse(content=result, status_code=200)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api.get("/api/status")
+async def stream_status():
+    """
+    Dapatkan status streaming
+    """
+    return JSONResponse(
+        content={
+            "streaming": streamer_instance.streaming,
+            "active_process": streamer_instance.process is not None
+        },
+        status_code=200
+    )
+
+@api.get("/api/logs")
+async def get_logs(limit: int = 50):
+    """
+    Dapatkan log streaming
+    """
+    logs = streamer_instance.get_logs(limit)
+    return JSONResponse(
+        content={
+            "logs": logs,
+            "total_logs": len(logs)
+        },
+        status_code=200
+    )
+
+@api.get("/api/list-videos")
+async def list_videos():
+    """
+    Dapatkan daftar video yang sudah diupload
+    """
+    try:
+        videos = []
+        for filename in os.listdir(UPLOAD_FOLDER):
+            file_path = os.path.join(UPLOAD_FOLDER, filename)
+            if os.path.isfile(file_path):
+                file_stats = os.stat(file_path)
+                videos.append({
+                    "filename": filename,
+                    "size": file_stats.st_size,
+                    "modified": time.ctime(file_stats.st_mtime)
+                })
+        
+        return JSONResponse(
+            content={"videos": videos},
+            status_code=200
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# === STREAMLIT INTERFACE ===
+
+def streamlit_interface():
+    st.set_page_config(
+        page_title="Streaming API Manager",
+        page_icon="🎬",
+        layout="wide"
+    )
     
-    # Tabs untuk navigasi
-    tab1, tab2, tab3 = st.tabs(["📺 Streaming", "📊 Status", "⚙️ Settings"])
+    st.title("🎬 YouTube Live Streaming API Manager")
+    
+    tab1, tab2, tab3 = st.tabs(["📤 Upload", "▶️ Control", "📊 Monitor"])
     
     with tab1:
-        st.subheader("Upload & Stream Video")
+        st.subheader("Upload Video")
+        uploaded_file = st.file_uploader("Pilih video", type=['mp4', 'flv', 'mov', 'avi'])
         
-        # List available video files
-        video_files = [f for f in os.listdir('.') if f.endswith(('.mp4', '.flv', '.mov', '.avi'))]
+        if uploaded_file:
+            with open(os.path.join(UPLOAD_FOLDER, uploaded_file.name), "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            st.success(f"✅ {uploaded_file.name} berhasil diupload!")
+            
+        st.subheader("Daftar Video")
+        if os.path.exists(UPLOAD_FOLDER):
+            videos = [f for f in os.listdir(UPLOAD_FOLDER) if os.path.isfile(os.path.join(UPLOAD_FOLDER, f))]
+            for video in videos:
+                st.write(f"📁 {video}")
+    
+    with tab2:
+        st.subheader("Control Panel")
+        
+        # List video files
+        video_files = []
+        if os.path.exists(UPLOAD_FOLDER):
+            video_files = [f for f in os.listdir(UPLOAD_FOLDER) if os.path.isfile(os.path.join(UPLOAD_FOLDER, f))]
+        
+        selected_video = st.selectbox("Pilih Video", video_files) if video_files else None
+        stream_key = st.text_input("Stream Key YouTube", type="password")
+        is_shorts = st.checkbox("Mode Shorts (720x1280)")
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.write("📁 Video yang tersedia:")
-            selected_video = st.selectbox("Pilih video", video_files) if video_files else None
-            
-            uploaded_file = st.file_uploader(
-                "Atau upload video baru (mp4/flv/mov/avi)", 
-                type=['mp4', 'flv', 'mov', 'avi']
-            )
-            
-            if uploaded_file:
-                with open(uploaded_file.name, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                st.success(f"✅ Video berhasil diupload: {uploaded_file.name}")
-                video_path = uploaded_file.name
-            elif selected_video:
-                video_path = selected_video
-            else:
-                video_path = None
-                
+            if st.button("▶️ Start Streaming"):
+                if not selected_video or not stream_key:
+                    st.error("Pilih video dan masukkan stream key!")
+                else:
+                    try:
+                        file_path = os.path.join(UPLOAD_FOLDER, selected_video)
+                        result = streamer_instance.start_streaming(file_path, stream_key, is_shorts)
+                        st.success(result["message"])
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
+        
         with col2:
-            stream_key = st.text_input("🔑 Stream Key YouTube", type="password")
-            is_shorts = st.checkbox("📱 Mode Shorts (720x1280)")
-            
-            st.divider()
-            
-            col_btn1, col_btn2 = st.columns(2)
-            
-            with col_btn1:
-                if st.button("▶️ Mulai Streaming", use_container_width=True):
-                    if not video_path or not stream_key:
-                        st.error("❌ Video dan stream key harus diisi!")
-                    else:
-                        result = handle_api_request("start_stream", {
-                            "filename": video_path,
-                            "stream_key": stream_key,
-                            "is_shorts": is_shorts
-                        })
-                        if result["status"] == "success":
-                            st.success(result["message"])
-                        else:
-                            st.error(f"❌ {result['message']}")
-                            
-            with col_btn2:
-                if st.button("⏹️ Stop Streaming", use_container_width=True):
-                    result = handle_api_request("stop_stream")
-                    if result["status"] == "success":
-                        st.warning(result["message"])
-                    else:
-                        st.error(f"❌ {result['message']}")
+            if st.button("⏹️ Stop Streaming"):
+                result = streamer_instance.stop_streaming()
+                st.warning(result["message"])
     
-    with tab2:
-        st.subheader("📊 Status Streaming")
+    with tab3:
+        st.subheader("Monitoring")
         
-        # Get status
-        status_result = handle_api_request("get_status")
-        st.metric("Status Streaming", "Aktif" if status_result.get("streaming") else "Tidak Aktif")
-        st.metric("Total Logs", status_result.get("logs_count", 0))
+        # Status
+        status_info = {
+            "Streaming Aktif": streamer_instance.streaming,
+            "Process Aktif": streamer_instance.process is not None
+        }
+        st.json(status_info)
         
-        st.divider()
-        
-        # Show logs
-        st.subheader("📋 Logs Streaming")
+        # Logs
+        st.subheader("Logs")
         if st.button("🔄 Refresh Logs"):
-            pass  # Akan refresh otomatis
+            pass
             
-        logs_result = handle_api_request("get_logs", {"limit": 100})
-        if logs_result["status"] == "success" and logs_result["logs"]:
-            logs_text = "\n".join(logs_result["logs"])
-            st.text_area("Logs", value=logs_text, height=400, key="logs_display")
+        logs = streamer_instance.get_logs(100)
+        if logs:
+            st.text_area("Streaming Logs", value="\n".join(logs), height=400, key="logs_monitor")
         else:
             st.info("Belum ada logs")
     
-    with tab3:
-        st.subheader("⚙️ Pengaturan")
-        
-        # Iklan toggle
-        show_ads = st.checkbox("Tampilkan Iklan", value=True)
-        if show_ads:
-            st.subheader("📢 Iklan Sponsor")
-            components.html(
-                """
-                <div style="background:#f0f2f6;padding:20px;border-radius:10px;text-align:center">
-                    <script type='text/javascript' 
-                            src='//pl26562103.profitableratecpm.com/28/f9/95/28f9954a1d5bbf4924abe123c76a68d2.js'>
-                    </script>
-                    <p style="color:#888">Iklan akan muncul di sini</p>
-                </div>
-                """,
-                height=300
-            )
-        
-        st.divider()
-        
-        # Info sistem
-        st.subheader("ℹ️ Informasi Sistem")
-        st.info("""
-        **Cara Penggunaan:**
-        1. Upload atau pilih video yang ingin di-stream
-        2. Masukkan Stream Key YouTube Anda
-        3. Pilih mode Shorts jika ingin format vertikal
-        4. Klik "Mulai Streaming"
-        5. Monitor status di tab "Status"
-        
-        **Catatan:**
-        - Pastikan video dalam format yang didukung (H.264/AAC)
-        - Stream Key bisa didapat dari YouTube Studio > Go Live
-        - Untuk mode Shorts, video akan diubah menjadi 720x1280
-        """)
+    st.divider()
+    st.info("""
+    ### API Endpoints:
+    - `POST /api/upload` - Upload video
+    - `POST /api/start` - Mulai streaming  
+    - `POST /api/stop` - Stop streaming
+    - `GET /api/status` - Status streaming
+    - `GET /api/logs` - Logs streaming
+    - `GET /api/list-videos` - Daftar video
+    
+    Base URL: https://liveapi1.streamlit.app/
+    """)
 
-if __name__ == '__main__':
-    main()
+# Jalankan keduanya
+if __name__ == "__main__":
+    import sys
+    if "streamlit" in sys.argv:
+        streamlit_interface()
+    else:
+        # Jalankan API server
+        uvicorn.run(api, host="0.0.0.0", port=8000)
