@@ -5,6 +5,7 @@ import streamlit.components.v1 as components
 import streamlit as st
 from streamer import streamer_instance
 from api_handler import handle_api_request
+import json
 
 # Page configuration
 st.set_page_config(
@@ -100,7 +101,7 @@ def main():
             st.info("Belum ada logs")
     
     with tab3:
-        st.subheader("⚙️ Pengaturan")
+        st.subheader("⚙️ Pengaturan & API Info")
         
         # Iklan toggle
         show_ads = st.checkbox("Tampilkan Iklan", value=True)
@@ -120,26 +121,40 @@ def main():
         
         st.divider()
         
-        # Info sistem
-        st.subheader("ℹ️ Informasi Sistem")
+        # API Documentation
+        st.subheader("🌐 API Documentation")
         st.info("""
-        **Cara Penggunaan:**
-        1. Upload atau pilih video yang ingin di-stream
-        2. Masukkan Stream Key YouTube Anda
-        3. Pilih mode Shorts jika ingin format vertikal
-        4. Klik "Mulai Streaming"
-        5. Monitor status di tab "Status"
+        **Cara Upload via API:**
         
-        **API Endpoints:**
-        - POST /api/upload - Upload video
-        - POST /api/stream/start - Mulai streaming
-        - POST /api/stream/stop - Stop streaming
-        - GET /api/status - Status streaming
-        - GET /api/logs - Logs streaming
-        - GET /api/videos - List videos
+        Untuk upload video melalui API, Anda bisa menggunakan library HTTP client seperti `requests`:
         
-        Base URL: https://liveapi1.streamlit.app/
-        """)
-
-if __name__ == '__main__':
-    main()
+        ```python
+        import requests
+        
+        # Upload video
+        with open('video.mp4', 'rb') as f:
+            files = {'file': ('video.mp4', f)}
+            response = requests.post(
+                'https://liveapi1.streamlit.app/',
+                files=files,
+                data={'action': 'upload', 'filename': 'video.mp4'}
+            )
+        
+        # Mulai streaming
+        data = {
+            'action': 'start_stream',
+            'filename': 'video.mp4',
+            'stream_key': 'YOUR_STREAM_KEY',
+            'is_shorts': 'false'
+        }
+        response = requests.post('https://liveapi1.streamlit.app/', data=data)
+        ```
+        
+        **Endpoint yang Tersedia:**
+        - Upload: POST dengan file data dan parameter action='upload'
+        - Start Stream: POST dengan parameter action='start_stream'
+        - Stop Stream: POST dengan parameter action='stop_stream'
+        - Get Status: POST dengan parameter action='get_status'
+        - Get Logs: POST dengan parameter action='get_logs'
+        
+        Semua request dikirim ke URL ut
